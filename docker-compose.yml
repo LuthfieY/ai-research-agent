@@ -1,0 +1,14 @@
+services:
+  research-agent:
+    build: .
+    container_name: research_agent_container
+    ports:
+      - "8501:8501"
+    volumes:
+      - .:/app
+    environment:
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - TAVILY_API_KEY=${TAVILY_API_KEY}
+    command: streamlit run app/main.py --server.port=8501 --server.address=0.0.0.0 --server.fileWatcherType=poll
+    stdin_open: true
+    tty: true
