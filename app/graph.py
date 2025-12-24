@@ -59,7 +59,13 @@ def researcher_node(state: AgentState):
             search_results = tavily.invoke(q)
             if search_results and isinstance(search_results, list):
                 for result in search_results:
+                    # Extract Year from published_date if available
+                    pub_date = result.get('published_date', '')
+                    year = pub_date[:4] if pub_date else 'n.d.'
+                    
                     clean_results.append({
+                        "title": result.get('title', 'Unknown Title'),
+                        "year": year,
                         "source": result.get('url', 'Unknown Source'),
                         "content": result.get('content', '')
                     })
@@ -83,7 +89,7 @@ def writer_node(state: AgentState):
         }
 
     for i, result in enumerate(state["content"], 1):
-        context_string += f"[{i}] Source: {result['source']}\nContent: {result['content']}\n\n"
+        context_string += f"[{i}] {result['title']} ({result['year']})\nSource: {result['source']}\nContent: {result['content']}\n\n"
     
     prompt = f"""
     You are a technical researcher. Write a detailed report on: {state['task']}
@@ -159,7 +165,7 @@ def should_continue(state: AgentState):
     if last_action == "APPROVE":
         return END
     
-    if revision_number > 2:
+    if revision_number > 1:
         print("Max revisions reached.")
         return END
         

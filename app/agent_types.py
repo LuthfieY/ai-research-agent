@@ -2,6 +2,8 @@ from typing import TypedDict, List, Annotated
 import operator
 
 class ResearchResult(TypedDict):
+    title: str
+    year: str
     source: str
     content: str
 
