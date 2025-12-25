@@ -4,6 +4,7 @@ import operator
 class ResearchResult(TypedDict):
     title: str
     year: str
+    author: str
     source: str
     content: str
 

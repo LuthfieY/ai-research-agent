@@ -66,6 +66,7 @@ def researcher_node(state: AgentState):
                     clean_results.append({
                         "title": result.get('title', 'Unknown Title'),
                         "year": year,
+                        "author": result.get('author', 'Unknown'),
                         "source": result.get('url', 'Unknown Source'),
                         "content": result.get('content', '')
                     })
@@ -112,6 +113,14 @@ def critique_node(state: AgentState):
     Critique Agent: Reviews the draft and provides feedback + next action.
     """
     print("--- Critique Node Running ---")
+    
+    revision_number = state.get("revision_number", 0)
+    if revision_number > 1:
+        print("DEBUG: Max revisions reached, skipping critique.")
+        return {
+            "critique": "Max revisions reached. Auto-approved.",
+            "last_action": "APPROVE"
+        }
     
     if not state.get("draft"):
         return {
@@ -163,10 +172,6 @@ def should_continue(state: AgentState):
     print(f"DECISION: {last_action} (Rev: {revision_number})")
 
     if last_action == "APPROVE":
-        return END
-    
-    if revision_number > 1:
-        print("Max revisions reached.")
         return END
         
     if last_action == "RESEARCH_MORE":

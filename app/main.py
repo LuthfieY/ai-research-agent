@@ -58,7 +58,7 @@ if st.button("Start Research") and query:
                     status_container.markdown(f"✍️ **Writer**: Completed Draft Revision #{rev}")
                     # Show draft snippet
                     with status_container.expander(f"📝 Preview Draft #{rev}", expanded=False):
-                        st.caption(draft_preview)
+                        st.write(draft_preview)
                         
                     status_container.update(label="🕵️ Critic is reviewing...", state="running")
                     
@@ -66,16 +66,15 @@ if st.button("Start Research") and query:
                     action = value.get('last_action')
                     critique_text = value.get('critique', '')
                     
-                    status_container.markdown(f"**Critic**: Verdict is **{action}**")
+                    status_container.markdown(f"**Verdict:** {action}")
                     with status_container.expander("🔍 View Critique Feedback", expanded=True):
-                        if action == "REWRITE":
-                            st.warning(critique_text)
-                        elif action == "RESEARCH_MORE":
-                            st.info(critique_text)
-                        else:
+                        st.markdown("**Critique:**")
+                        if action == "APPROVE":
                             st.success(critique_text)
+                        else:
+                            st.write(critique_text)
                             
-                    status_container.update(label=f"� Next Action: {action}", state="running")
+                    status_container.update(label=f"💡 Next Action: {action}", state="running")
                     
         status_container.update(label="Research Completed!", state="complete", expanded=False)
         st.session_state["final_state"] = current_state
@@ -105,6 +104,7 @@ if "final_state" in st.session_state:
                     ref_data.append({
                         "No": i,
                         "Year": item.get("year", "n.d."),
+                        "Author": item.get("author", "Unknown"),
                         "Title": item.get("title", 'Unknown'),
                         "Source": item.get("source", "")
                     })
@@ -115,6 +115,7 @@ if "final_state" in st.session_state:
                     column_config={
                         "No": st.column_config.NumberColumn(width="small"),
                         "Year": st.column_config.TextColumn(width="small"),
+                        "Author": "Author",
                         "Title": "Title",
                         "Source": st.column_config.LinkColumn("Link")
                     },
@@ -129,17 +130,22 @@ if "final_state" in st.session_state:
                 for i, item in enumerate(final_state["content"], 1):
                     title = item.get("title", "Unknown Title")
                     year = item.get("year", "n.d.")
+                    author = item.get("author", "Unknown Author")
                     url = item.get("source", "")
                     
                     if citation_format == "APA":
-                        citation_text += f"{i}. Author. ({year}). *{title}*. Retrieved from {url}\n"
+                        citation_text += f"{i}. {author}. ({year}). _{title}_. Retrieved from {url}\n\n"
                     elif citation_format == "IEEE":
-                        citation_text += f"[{i}] Author, \"{title},\" {year}. [Online]. Available: {url}.\n"
+                        citation_text += f"[{i}]. {author}, \"{title},\" {year}. [Online]. Available: {url}.\n\n"
                     elif citation_format == "BibTeX":
-                        citation_text += f"""@misc{{ref{i},
-    title = {{{title}}},
-    year = {{{year}}},
-    howpublished = {{\\url{{{url}}}}}
-}}\n"""
+                        # Create a simple citation key from author + year + index
+                        clean_author = author.split()[0].lower() if author else "unknown"
+                        cit_key = f"{clean_author}{year}{i}"
+                        citation_text += f"""@misc{{{cit_key},
+                                        author = {{{author}}},
+                                        title = {{{title}}},
+                                        year = {{{year}}},
+                                        howpublished = {{\\url{{{url}}}}}
+                                    }}\n\n"""
 
-                st.code(citation_text, language="text")
+                st.markdown(citation_text)
