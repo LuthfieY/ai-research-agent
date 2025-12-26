@@ -24,6 +24,8 @@ def researcher_node(state: AgentState):
     task = state["task"]
     critique = state.get("critique")
     
+    search_mode = state.get("search_mode", "General")
+    
     if critique:
         prompt = f"""
         You are a researcher. 
@@ -32,6 +34,17 @@ def researcher_node(state: AgentState):
         
         Generate 2 specific search queries to gather missing information addressed in the critique.
         Return ONLY a JSON list of strings, e.g., ["query1", "query2"].
+        """
+    elif search_mode == "Academic Journals":
+        prompt = f"""
+        You are an academic researcher. 
+        User Task: {task}
+        
+        Generate 3 advanced search queries to find ACADEMIC SOURCES (Journals, Research Papers, Theses). 
+        Include terms like "journal", "study", "analysis", "PDF", "doi", or specific database names if relevant.
+        Focus on finding credible, peer-reviewed information.
+        
+        Return ONLY a JSON list of strings, e.g., ["query1", "query2", "query3"].
         """
     else:
         prompt = f"""

@@ -24,6 +24,7 @@ st.markdown("Enter a topic, and I'll research, write, and refine a report for yo
 with st.sidebar:
     st.header("Settings")
     st.info("Using Gemini 2.5 Flash + Tavily Search")
+    search_mode = st.selectbox("Search Mode", ["General", "Academic Journals"])
 
 query = st.text_input("Research Topic:", placeholder="e.g. The future of solid state batteries")
 
@@ -33,7 +34,7 @@ if st.button("Start Research") and query:
     current_state = {} 
 
     try:
-        inputs = {"task": query}
+        inputs = {"task": query, "search_mode": search_mode}
         
         for output in app_graph.stream(inputs):
             for key, value in output.items():
@@ -91,6 +92,16 @@ if "final_state" in st.session_state:
         # 1. Main Content: Final Report (Full Width)
         st.divider()
         st.header("📄 Final Report")
+        
+        # Inject CSS for justified text
+        st.markdown("""
+        <style>
+        .stMarkdown p {
+            text-align: justify;
+        }
+        </style>
+        """, unsafe_allow_html=True)
+        
         st.markdown(final_state["draft"])
         
         if final_state.get("content"):
