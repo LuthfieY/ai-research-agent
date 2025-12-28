@@ -6,3 +6,4 @@ langchain-community
 tavily-python
 watchdog
 python-dotenv
+google-search-results

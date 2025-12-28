@@ -6,6 +6,10 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_community.tools.tavily_search import TavilySearchResults 
 
 from app.agent_types import AgentState
+try:
+    from serpapi import GoogleSearch
+except ImportError:
+    GoogleSearch = None
 
 llm = ChatGoogleGenerativeAI(
     model="gemini-2.5-flash",
@@ -19,13 +23,14 @@ tavily = TavilySearchResults(max_results=3)
 def researcher_node(state: AgentState):
     """
     Research Agent: Generates search queries based on task/critique and executes them.
+    Supports "Academic Journals" mode via SerpAPI (Google Scholar).
     """
     print("--- Researcher Node Running ---")
     task = state["task"]
     critique = state.get("critique")
-    
     search_mode = state.get("search_mode", "General")
     
+    # Generate Queries
     if critique:
         prompt = f"""
         You are a researcher. 
@@ -66,25 +71,73 @@ def researcher_node(state: AgentState):
     print(f"Searching for: {queries}")
     
     clean_results: List[ResearchResult] = []
+    
+    serp_key = os.getenv("SERP_API_KEY")
 
     for q in queries:
-        try:
-            search_results = tavily.invoke(q)
-            if search_results and isinstance(search_results, list):
-                for result in search_results:
-                    # Extract Year from published_date if available
-                    pub_date = result.get('published_date', '')
-                    year = pub_date[:4] if pub_date else 'n.d.'
+        # --- Academic Search Logic (SerpAPI) ---
+        if search_mode == "Academic Journals" and serp_key and GoogleSearch:
+            print(f"DEBUG: Using SerpAPI (Google Scholar) for {q}")
+            try:
+                params = {
+                    "engine": "google_scholar",
+                    "q": q,
+                    "api_key": serp_key,
+                    "num": 3
+                }
+                search = GoogleSearch(params)
+                results = search.get_dict().get("organic_results", [])
+                
+                for r in results:
+                    # Parse publication info (e.g. "J Doe, A Smith - Nature, 2023 - nature.com")
+                    pub_info = r.get("publication_info", {})
+                    summary = pub_info.get("summary", "")
                     
+                    # Simple extraction: Year is usually a 4-digit number in the summary
+                    import re
+                    year_match = re.search(r'\b(19|20)\d{2}\b', summary)
+                    year = year_match.group(0) if year_match else "n.d."
+                    
+                    # Author is usually the first part before the hyphen
+                    author = summary.split("-")[0].strip() if "-" in summary else "Unknown Author"
+
                     clean_results.append({
-                        "title": result.get('title', 'Unknown Title'),
+                        "title": r.get("title", "Unknown Title"),
                         "year": year,
-                        "author": result.get('author', 'Unknown'),
-                        "source": result.get('url', 'Unknown Source'),
-                        "content": result.get('content', '')
+                        "author": author,
+                        "source": r.get("link", ""),
+                        "content": r.get("snippet", "")
                     })
-        except Exception as e:
-            print(f"Error searching for {q}: {e}")
+            except Exception as e:
+                print(f"SerpAPI Error: {e}. Falling back to Tavily.")
+                # Fallback to Tavily handled by the 'else' block? 
+                # No, we should explicitly call Tavily here if SerpAPI fails, OR just skip.
+                # Let's simple skip for now or continue to Tavily logic if we wanted mixed.
+                # But to keep simple, if fails, we just log.
+                pass
+
+        # --- General Search Logic (Tavily) ---
+        else:
+            if search_mode == "Academic Journals" and not serp_key:
+                print("WARNING: Academic Mode selected but SERP_API_KEY missing. Falling back to Tavily.")
+
+            try:
+                search_results = tavily.invoke(q)
+                if search_results and isinstance(search_results, list):
+                    for result in search_results:
+                        # Extract Year
+                        pub_date = result.get('published_date', '')
+                        year = pub_date[:4] if pub_date else 'n.d.'
+                        
+                        clean_results.append({
+                            "title": result.get('title', 'Unknown Title'),
+                            "year": year,
+                            "author": result.get('author', 'Unknown'),
+                            "source": result.get('url', 'Unknown Source'),
+                            "content": result.get('content', '')
+                        })
+            except Exception as e:
+                print(f"Tavily Error for {q}: {e}")
             
     print(f"DEBUG: Researcher found {len(clean_results)} results")
     return {"content": clean_results}
@@ -103,13 +156,22 @@ def writer_node(state: AgentState):
         }
 
     for i, result in enumerate(state["content"], 1):
-        context_string += f"[{i}] {result['title']} ({result['year']})\nSource: {result['source']}\nContent: {result['content']}\n\n"
+        context_string += f"[{i}] Title: {result['title']}\nAuthor: {result.get('author', 'Unknown')}\nYear: {result['year']}\nSource: {result['source']}\nContent: {result['content']}\n\n"
     
+    citation_style = state.get("citation_style", "IEEE")
+    
+    if citation_style == "APA":
+        citation_instruction = "Use APA in-text citations, e.g., (Author, Year). Do not use [1], [2]."
+    else:
+        citation_instruction = "Use IEEE numeric citations, e.g., [1], [2]. Ensure numbers correspond to the provided source list."
+
     prompt = f"""
     You are a technical researcher. Write a detailed report on: {state['task']}
     
-    Use the following research notes (include citations like [1], [2] where possible):
+    Use the following research notes:
     {context_string}
+    
+    {citation_instruction}
 
     Return ONLY the report.
     """

@@ -4,27 +4,13 @@ from app.graph import app_graph
 
 st.set_page_config(page_title="Autonomous Research Agent", page_icon="🤖")
 
-st.title("🤖 Autonomous Research Agent")
-
-# Sidebar for debug info
-with st.sidebar:
-    st.header("System Status")
-    if os.getenv("GEMINI_API_KEY"):
-        st.success("GEMINI API Key Detected")
-    else:
-        st.error("Missing GEMINI API Key")
-        
-    if os.getenv("TAVILY_API_KEY"):
-        st.success("Tavily API Key Detected")
-    else:
-        st.error("Missing Tavily API Key")
+st.title("Autonomous Research Agent")
 
 st.markdown("Enter a topic, and I'll research, write, and refine a report for you.")
 
 with st.sidebar:
-    st.header("Settings")
-    st.info("Using Gemini 2.5 Flash + Tavily Search")
     search_mode = st.selectbox("Search Mode", ["General", "Academic Journals"])
+    citation_style = st.selectbox("Report Citation Style", ["IEEE", "APA", "BibTeX"])
 
 query = st.text_input("Research Topic:", placeholder="e.g. The future of solid state batteries")
 
@@ -34,7 +20,7 @@ if st.button("Start Research") and query:
     current_state = {} 
 
     try:
-        inputs = {"task": query, "search_mode": search_mode}
+        inputs = {"task": query, "search_mode": search_mode, "citation_style": citation_style}
         
         for output in app_graph.stream(inputs):
             for key, value in output.items():
@@ -91,7 +77,6 @@ if "final_state" in st.session_state:
     if final_state and final_state.get("draft"):
         # 1. Main Content: Final Report (Full Width)
         st.divider()
-        st.header("📄 Final Report")
         
         # Inject CSS for justified text
         st.markdown("""
@@ -107,7 +92,7 @@ if "final_state" in st.session_state:
         if final_state.get("content"):
             with st.sidebar:
                 st.divider()
-                st.header("📚 References")
+                st.header("References")
                 
                 # Format data for table
                 ref_data = []
@@ -135,7 +120,13 @@ if "final_state" in st.session_state:
                 
                 # Citation Generator
                 st.subheader("❝ Citation Generator")
-                citation_format = st.selectbox("Format", ["APA", "IEEE", "BibTeX"])
+                
+                # Default to the style used in the report
+                report_style = final_state.get("citation_style", "IEEE")
+                citation_options = ["IEEE", "APA", "BibTeX"]
+                default_index = citation_options.index(report_style) if report_style in citation_options else 0
+                
+                citation_format = st.selectbox("Format", citation_options, index=default_index)
                 
                 citation_text = ""
                 for i, item in enumerate(final_state["content"], 1):

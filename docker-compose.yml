@@ -9,6 +9,7 @@ services:
     environment:
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - TAVILY_API_KEY=${TAVILY_API_KEY}
+      - SERP_API_KEY=${SERP_API_KEY}
     command: streamlit run app/main.py --server.port=8501 --server.address=0.0.0.0 --server.fileWatcherType=poll
     stdin_open: true
     tty: true

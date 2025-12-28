@@ -16,3 +16,4 @@ class AgentState(TypedDict):
     revision_number: int                                    # The current revision number
     last_action: str                                        # To store the critic's decision (RESEARCH_MORE, REWRITE, APPROVE)
     search_mode: str                                        # General or Academic Journals
+    citation_style: str                                     # "APA", "IEEE", "BibTeX"
