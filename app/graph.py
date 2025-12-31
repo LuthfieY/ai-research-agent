@@ -11,24 +11,38 @@ try:
 except ImportError:
     GoogleSearch = None
 
-llm = ChatGoogleGenerativeAI(
-    model="gemini-2.5-flash",
-    temperature=0,
-    google_api_key=os.getenv("GEMINI_API_KEY")
-)
+# Helper to get LLM with dynamic key from Config
+def get_llm(config):
+    configurable = config.get("configurable", {})
+    api_key = configurable.get("gemini_api_key") or os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        print("WARNING: Gemini API Key missing.")
+        # We might want to raise error or let it fail downstream
+    return ChatGoogleGenerativeAI(
+        model="gemini-2.5-flash",
+        temperature=0,
+        google_api_key=api_key
+    )
 
-tavily = TavilySearchResults(max_results=3)
-
-
-def researcher_node(state: AgentState):
+def researcher_node(state: AgentState, config):
     """
     Research Agent: Generates search queries based on task/critique and executes them.
     Supports "Academic Journals" mode via SerpAPI (Google Scholar).
     """
     print("--- Researcher Node Running ---")
+    
+    # Init LLM specifically for this run
+    try:
+        llm = get_llm(config)
+    except Exception as e:
+        print(f"LLM Init Error: {e}")
+        return {"content": []}
+
     task = state["task"]
     critique = state.get("critique")
-    search_mode = state.get("search_mode", "General")
+    
+    configurable = config.get("configurable", {})
+    search_mode = configurable.get("search_mode", "General")
     
     # Generate Queries
     if critique:
@@ -60,19 +74,23 @@ def researcher_node(state: AgentState):
         Return ONLY a JSON list of strings, e.g., ["query1", "query2", "query3"].
         """
         
-    response = llm.invoke(prompt)
     try:
+        response = llm.invoke(prompt)
         content = response.content.replace("```json", "").replace("```", "").strip()
         queries = json.loads(content)
     except Exception as e:
-        print(f"JSON Parsing failed: {e}. Fallback to original task.")
+        print(f"JSON Parsing failed or LLM error: {e}. Fallback to original task.")
         queries = [task]
 
     print(f"Searching for: {queries}")
     
     clean_results: List[ResearchResult] = []
     
-    serp_key = os.getenv("SERP_API_KEY")
+    # API Keys from Config
+    configurable = config.get("configurable", {})
+    serp_key = configurable.get("serpapi_api_key") or os.getenv("SERP_API_KEY") or os.getenv("SERPAPI_API_KEY")
+    tavily_key = configurable.get("tavily_api_key") or os.getenv("TAVILY_API_KEY")
+    max_results = configurable.get("max_results", 3)
 
     for q in queries:
         # --- Academic Search Logic (SerpAPI) ---
@@ -83,7 +101,7 @@ def researcher_node(state: AgentState):
                     "engine": "google_scholar",
                     "q": q,
                     "api_key": serp_key,
-                    "num": 3
+                    "num": max_results
                 }
                 search = GoogleSearch(params)
                 results = search.get_dict().get("organic_results", [])
@@ -110,10 +128,6 @@ def researcher_node(state: AgentState):
                     })
             except Exception as e:
                 print(f"SerpAPI Error: {e}. Falling back to Tavily.")
-                # Fallback to Tavily handled by the 'else' block? 
-                # No, we should explicitly call Tavily here if SerpAPI fails, OR just skip.
-                # Let's simple skip for now or continue to Tavily logic if we wanted mixed.
-                # But to keep simple, if fails, we just log.
                 pass
 
         # --- General Search Logic (Tavily) ---
@@ -122,7 +136,10 @@ def researcher_node(state: AgentState):
                 print("WARNING: Academic Mode selected but SERP_API_KEY missing. Falling back to Tavily.")
 
             try:
-                search_results = tavily.invoke(q)
+                # Init Tavily with dynamic key & max_results
+                tavily_tool = TavilySearchResults(max_results=max_results, tavily_api_key=tavily_key)
+                
+                search_results = tavily_tool.invoke(q)
                 if search_results and isinstance(search_results, list):
                     for result in search_results:
                         # Extract Year
@@ -142,11 +159,13 @@ def researcher_node(state: AgentState):
     print(f"DEBUG: Researcher found {len(clean_results)} results")
     return {"content": clean_results}
 
-def writer_node(state: AgentState):
+def writer_node(state: AgentState, config):
     """
     Writer Agent: Formats the structured data into a prompt.
     """
     print("--- Writer Node Running ---")
+    
+    llm = get_llm(config)
     
     context_string = ""
     if not state.get("content"):
@@ -158,7 +177,8 @@ def writer_node(state: AgentState):
     for i, result in enumerate(state["content"], 1):
         context_string += f"[{i}] Title: {result['title']}\nAuthor: {result.get('author', 'Unknown')}\nYear: {result['year']}\nSource: {result['source']}\nContent: {result['content']}\n\n"
     
-    citation_style = state.get("citation_style", "IEEE")
+    configurable = config.get("configurable", {})
+    citation_style = configurable.get("citation_style", "IEEE")
     
     if citation_style == "APA":
         citation_instruction = "Use APA in-text citations, e.g., (Author, Year). Do not use [1], [2]."
@@ -172,8 +192,11 @@ def writer_node(state: AgentState):
     {context_string}
     
     {citation_instruction}
-
-    Return ONLY the report.
+    
+    IMPORTANT: Do NOT include a "References" or "Bibliography" section at the end of your report. 
+    The system will handle the bibliography display separately.
+    
+    Return ONLY the report content.
     """
 
     response = llm.invoke(prompt)
@@ -183,14 +206,19 @@ def writer_node(state: AgentState):
         "revision_number": state.get("revision_number", 0) + 1
     }
 
-def critique_node(state: AgentState):
+def critique_node(state: AgentState, config):
     """
     Critique Agent: Reviews the draft and provides feedback + next action.
     """
     print("--- Critique Node Running ---")
     
+    llm = get_llm(config)
+    
+    configurable = config.get("configurable", {})
+    max_revisions = configurable.get("max_revisions", 2)
+
     revision_number = state.get("revision_number", 0)
-    if revision_number > 1:
+    if revision_number > max_revisions:
         print("DEBUG: Max revisions reached, skipping critique.")
         return {
             "critique": "Max revisions reached. Auto-approved.",
