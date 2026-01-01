@@ -32,6 +32,14 @@ def save_research(topic, report, references):
     conn.commit()
     conn.close()
 
+def delete_history_item(item_id):
+    """Delete a history item by ID."""
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute('DELETE FROM history WHERE id = ?', (item_id,))
+    conn.commit()
+    conn.close()
+
 def get_history():
     """Retrieve all history items ordered by newest first."""
     conn = sqlite3.connect(DB_FILE)

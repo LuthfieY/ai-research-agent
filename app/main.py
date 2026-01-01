@@ -2,14 +2,13 @@ import streamlit as st
 import os
 import pandas as pd
 from app.graph import app_graph
-from app.database import init_db, save_research, get_history
+from app.database import init_db, save_research, get_history, delete_history_item
 
 # Initialize DB on startup
 init_db()
 
 st.set_page_config(page_title="Lumina Research", page_icon="🔎", layout="wide")
 
-# Centered Title & Subtitle with Reduced Gap & Custom CSS
 st.markdown("""
 <style>
 div[data-testid="InputInstructions"] {
@@ -65,10 +64,19 @@ with st.sidebar:
         st.info("No history yet.")
     else:
         for item in history_data:
-            label = f"{item['timestamp'][:10]} - {item['topic'][:20]}..."
-            if st.button(label, key=f"hist_{item['id']}", use_container_width=True):
-                st.session_state["history_view"] = item
-                st.rerun()
+            col1, col2 = st.columns([0.8, 0.2])
+            label = f"{item['timestamp'][:10]} - {item['topic'][:15]}..."
+            
+            with col1:
+                if st.button(label, key=f"hist_{item['id']}", help=item['topic'], use_container_width=True):
+                    st.session_state["history_view"] = item
+                    st.rerun()
+            with col2:
+                if st.button("✖", key=f"del_{item['id']}", help="Delete"):
+                    delete_history_item(item['id'])
+                    if st.session_state.get("history_view") and st.session_state["history_view"]["id"] == item["id"]:
+                        st.session_state["history_view"] = None
+                    st.rerun()
 
 # --- MAIN CONTENT AREA ---
 
@@ -78,13 +86,77 @@ view_item = st.session_state.get("history_view")
 # If viewing history, show static report
 if view_item:
     st.info(f"Viewing history: {view_item['timestamp']}")
+    st.markdown("""
+    <style>
+    .stMarkdown p {
+        text-align: justify;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
     st.markdown(view_item['report'])
     
     st.divider()
     with st.expander("📚 References & Citations", expanded=True):
-        # Display references from history
         refs = view_item.get('references', [])
-        st.json(refs)
+        if refs:
+            st.header("References")
+            
+            # 1. Table
+            ref_data = []
+            for i, item in enumerate(refs, 1):
+                ref_data.append({
+                    "No": i,
+                    "Year": item.get("year", "n.d."),
+                    "Author": item.get("author", "Unknown"),
+                    "Title": item.get("title", 'Unknown'),
+                    "Source": item.get("source", "")
+                })
+            
+            st.dataframe(
+                ref_data, 
+                column_config={
+                    "No": st.column_config.NumberColumn(width="small"),
+                    "Year": st.column_config.TextColumn(width="small"),
+                    "Author": "Author",
+                    "Title": "Title",
+                    "Source": st.column_config.LinkColumn("Link")
+                },
+                hide_index=True
+            )
+            
+            st.divider()
+            
+            # 2. Citation Generator
+            st.subheader("❝ Citation Generator")
+            
+            citation_options = ["IEEE", "APA", "BibTeX"]
+            citation_format = st.selectbox("Format", citation_options, key="cit_history_gen")
+            
+            citation_text = ""
+            for i, item in enumerate(refs, 1):
+                title = item.get("title", "Unknown Title")
+                year = item.get("year", "n.d.")
+                author = item.get("author", "Unknown Author")
+                url = item.get("source", "")
+                
+                if citation_format == "APA":
+                    citation_text += f"{i}. {author}. ({year}). _{title}_. Retrieved from {url}\n\n"
+                elif citation_format == "IEEE":
+                    citation_text += f"[{i}]. {author}, \"{title},\" {year}. [Online]. Available: {url}.\n\n"
+                elif citation_format == "BibTeX":
+                    clean_author = author.split()[0].lower() if author else "unknown"
+                    cit_key = f"{clean_author}{year}{i}"
+                    citation_text += f"""@misc{{{cit_key},
+        author = {{{author}}},
+        title = {{{title}}},
+        year = {{{year}}},
+        howpublished = {{\\url{{{url}}}}}
+}}\n\n"""
+
+            st.code(citation_text, language="text" if citation_format != "BibTeX" else "latex")
+        else:
+            st.info("No references recorded for this item.")
         
     if st.button("Back to Research"):
         st.session_state["history_view"] = None
@@ -92,11 +164,9 @@ if view_item:
 
 # If NEW RESEARCH mode
 else:
-    # --- QUERY INPUT ---
     query = st.text_input("Research Topic:", placeholder="e.g. The future of solid state batteries")
 
     if st.button("Start Research") and query:
-        # --- Input Validation ---
         if not (user_gemini_key or os.getenv("GEMINI_API_KEY")):
             st.error("❌ Gemini API Key is missing. Please enter it in the Settings above.")
             st.stop()
@@ -104,11 +174,11 @@ else:
         if "No Search Keys Found" in search_mode:
             st.error("❌ No valid Search API Key (Tavily or SerpAPI) found. Please verify your keys.")
             st.stop()
-        # ------------------------
 
         status_container = st.status("Initializing Agent...", expanded=True)
         
         current_state = {} 
+        should_rerun = False
 
         try:
             inputs = {"task": query}
@@ -171,12 +241,16 @@ else:
             if current_state.get("draft"):
                 save_research(query, current_state["draft"], current_state.get("content", []))
                 st.toast("✅ Research saved to History!")
+                should_rerun = True
                 
-            st.toast("Research completed! Scroll down for References 📚") ## CHANGED MESSAGE
+            st.toast("Research completed! Scroll down for References 📚")
 
         except Exception as e:
             st.error(f"An error occurred: {e}")
             st.stop()
+            
+        if should_rerun:
+            st.rerun()
             
     # --- RENDER FINAL OUTPUT (If available in session state) ---
     if "final_state" in st.session_state and st.session_state["final_state"]:
@@ -230,7 +304,7 @@ else:
                     st.subheader("❝ Citation Generator")
                     
                     # Use current selectbox choice if available, else default
-                    report_style = citation_style # This variable is available from the Config Expander above
+                    report_style = citation_style
                     citation_options = ["IEEE", "APA", "BibTeX"]
                     default_index = citation_options.index(report_style) if report_style in citation_options else 0
                     

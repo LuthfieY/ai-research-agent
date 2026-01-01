@@ -11,13 +11,11 @@ try:
 except ImportError:
     GoogleSearch = None
 
-# Helper to get LLM with dynamic key from Config
 def get_llm(config):
     configurable = config.get("configurable", {})
     api_key = configurable.get("gemini_api_key") or os.getenv("GEMINI_API_KEY")
     if not api_key:
         print("WARNING: Gemini API Key missing.")
-        # We might want to raise error or let it fail downstream
     return ChatGoogleGenerativeAI(
         model="gemini-2.5-flash",
         temperature=0,
@@ -31,7 +29,6 @@ def researcher_node(state: AgentState, config):
     """
     print("--- Researcher Node Running ---")
     
-    # Init LLM specifically for this run
     try:
         llm = get_llm(config)
     except Exception as e:
@@ -44,7 +41,6 @@ def researcher_node(state: AgentState, config):
     configurable = config.get("configurable", {})
     search_mode = configurable.get("search_mode", "General")
     
-    # Generate Queries
     if critique:
         prompt = f"""
         You are a researcher. 
@@ -86,7 +82,6 @@ def researcher_node(state: AgentState, config):
     
     clean_results: List[ResearchResult] = []
     
-    # API Keys from Config
     configurable = config.get("configurable", {})
     serp_key = configurable.get("serpapi_api_key") or os.getenv("SERP_API_KEY") or os.getenv("SERPAPI_API_KEY")
     tavily_key = configurable.get("tavily_api_key") or os.getenv("TAVILY_API_KEY")
@@ -107,16 +102,13 @@ def researcher_node(state: AgentState, config):
                 results = search.get_dict().get("organic_results", [])
                 
                 for r in results:
-                    # Parse publication info (e.g. "J Doe, A Smith - Nature, 2023 - nature.com")
                     pub_info = r.get("publication_info", {})
                     summary = pub_info.get("summary", "")
                     
-                    # Simple extraction: Year is usually a 4-digit number in the summary
                     import re
                     year_match = re.search(r'\b(19|20)\d{2}\b', summary)
                     year = year_match.group(0) if year_match else "n.d."
                     
-                    # Author is usually the first part before the hyphen
                     author = summary.split("-")[0].strip() if "-" in summary else "Unknown Author"
 
                     clean_results.append({
@@ -136,13 +128,11 @@ def researcher_node(state: AgentState, config):
                 print("WARNING: Academic Mode selected but SERP_API_KEY missing. Falling back to Tavily.")
 
             try:
-                # Init Tavily with dynamic key & max_results
                 tavily_tool = TavilySearchResults(max_results=max_results, tavily_api_key=tavily_key)
                 
                 search_results = tavily_tool.invoke(q)
                 if search_results and isinstance(search_results, list):
                     for result in search_results:
-                        # Extract Year
                         pub_date = result.get('published_date', '')
                         year = pub_date[:4] if pub_date else 'n.d.'
                         
