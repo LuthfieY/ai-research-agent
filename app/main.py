@@ -1,5 +1,10 @@
 import streamlit as st
 import os
+import sys
+
+# Add project root to sys.path so we can import from 'app' package
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 import pandas as pd
 from app.graph import app_graph
 from app.database import init_db, save_research, get_history, delete_history_item
